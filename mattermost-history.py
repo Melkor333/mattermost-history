@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 
 # from datetime import datetime as dt
 #print(calendar.month(dt.today().year, dt.today().month))
+print("Please Enter the date you want to the first message from")
+print("Default is always today")
 year = input('Enter a year: ')
 if year == '':
     year = datetime.now().year
@@ -26,7 +28,7 @@ if hour == '':
     hour = datetime.now().hour
 else:
     hour = int(hour)
-delta = input('Enter the delta: ')
+delta = input('Enter the delta in hours (e.g. 5 to print 5 hours of messages since start date):\n # ')
 if delta == '':
     delta = 10
 else:
@@ -38,7 +40,8 @@ begin = datetime(year, month, day, hour, 0, 0)
 end = datetime.timestamp(begin + timedelta(hours=delta)) * 1000
 begin = datetime.timestamp(begin) * 1000
 
-mm_server = input("Please enter the MM instance")
+mm_server = input("Please enter the MM instance (e.g. 'chat.mattermost.com') \n # ")
+mm_server = 'https://' + mm_server + '/api'
 mm = mattermost.MMApi(mm_server)
 bearer = input("Please Enter the bearer (Login in the browser, open dev tools->Storage, search MMAuthCookie)\n # ")
 mm.login(bearer=bearer)
@@ -56,13 +59,13 @@ class Messages():
     '''
     def __init__(self):
         self.messages = []
-        self.users = set()
+        self._users = set()
         self.channels = set()
         self.channelMap = {}
         self.userMap = {}
 
     def append(self, el):
-        self.users.add(el['user'])
+        self.add_user(el['user'])
         bisect.insort(self.messages, el, key=lambda x: x['timestamp'])
 
     def get_channel(self, channel):
@@ -70,17 +73,29 @@ class Messages():
             c = mm.get_channel(channel)
             # We have a user channel
             if c['display_name'] == '':
-                self.channelMap[channel] = 'direct'
+                users = c['name'].split('__')
+                if users[0] == uid:
+                    u = users[1]
+                else:
+                    u = users[0]
+                print(u)
+                self.add_user(u)
+                self.channelMap[channel] = self.get_user(u)
+
             # We have a group channel
             else:
                 self.channelMap[channel] = c['display_name']
         return self.channelMap[channel]
 
+    def add_user(self, uid):
+        if uid not in self.userMap:
+            self._users.add(uid)
+
     def get_user(self, uid):
         if uid not in self.userMap:
-            self.userMap = {}
-            for u in mm.get_users_by_ids_list(list(self.users)):
+            for u in mm.get_users_by_ids_list(list(self._users)):
                 self.userMap[u['id']] = u['username']
+                self._users.remove(u['id']) # no need to ever add them again
         return self.userMap[uid]
 
     def __str__(self):
