@@ -37,7 +37,7 @@ else:
 
 begin = datetime(year, month, day, hour, 0, 0)
 # Convert both begin and end to timestamp with microseconds
-end = datetime.timestamp(begin + timedelta(hours=delta)) * 1000
+end = (datetime.timestamp(begin + timedelta(hours=delta))) * 1000
 begin = datetime.timestamp(begin) * 1000
 
 mm_server = input("Please enter the MM instance (e.g. 'chat.mattermost.com') \n # ")
@@ -78,7 +78,6 @@ class Messages():
                     u = users[1]
                 else:
                     u = users[0]
-                print(u)
                 self.add_user(u)
                 self.channelMap[channel] = self.get_user(u)
 
@@ -115,7 +114,11 @@ messages = Messages()
 for channel in channels:
     if channel['last_viewed_at'] > begin:
         posts = mm.get_posts_for_channel(channel['channel_id'])
+        first_msg = True
         for post in posts:
+            if post['create_at'] < begin and first_msg:
+                break
+            first_msg = False
             if post['create_at'] > end:
                 continue
             messages.append({'timestamp': post['create_at'],
