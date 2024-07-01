@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import mattermost
+import requests
 import bisect
 from datetime import datetime, timedelta
 
@@ -34,25 +34,33 @@ if delta == '':
 else:
     delta = int(delta)
 
-
 begin = datetime(year, month, day, hour, 0, 0)
-# Convert both begin and end to timestamp with microseconds
-end = (datetime.timestamp(begin + timedelta(hours=delta))) * 1000
-begin = datetime.timestamp(begin) * 1000
+# NOT: Convert both begin and end to timestamp with microseconds
+end = (datetime.timestamp(begin + timedelta(hours=delta)))# * 1000
+begin = datetime.timestamp(begin) #* 1000
 
 mm_server = input("Please enter the MM instance (e.g. 'chat.mattermost.com') \n # ")
-mm_server = 'https://' + mm_server + '/api'
-mm = mattermost.MMApi(mm_server)
+mm_server = 'https://' + mm_server + '/api/v4/'
+#mm = mattermost.MMApi(mm_server)
 bearer = input("Please Enter the bearer (Login in the browser, open dev tools->Storage, search MMAuthCookie)\n # ")
-mm.login(bearer=bearer)
+#mm.login(bearer=bearer)
+headers = {
+        'Authorization': "bearer " + bearer,
+}
 
-user = mm.get_user()
-uid = user['id']
+user_id = requests.get(mm_server+'users/me', headers=headers).json()['id']
+team_id = requests.get(mm_server+'users/me/teams', headers=headers).json()[0]['id']
+channels = requests.get(mm_server+'users/'+user_id+'/teams/'+team_id+'/channels/members', headers=headers)
+#channel_ids = [ channel['channel_id'] for channel in channels.json() ]
 
-team = mm._get("/v4/users/me/teams")[0]
-tid = team['id']
+def clear_line():
+    LINE_CLEAR = '\x1b[2K'
+    print(LINE_CLEAR, end= '\r')
 
-channels = mm.get_channel_memberships_for_user(uid, tid)
+def info(m):
+    clear_line()
+    print(m, end = '\r')
+
 class Messages():
     '''
     Store a list of mattermost messages in timestamp order from multiple channels
@@ -70,11 +78,12 @@ class Messages():
 
     def get_channel(self, channel):
         if channel not in self.channelMap:
-            c = mm.get_channel(channel)
+            #c = mm.get_channel(channel)
+            c = requests.get(mm_server+'channels/'+channel, headers=headers).json()
             # We have a user channel
             if c['display_name'] == '':
                 users = c['name'].split('__')
-                if users[0] == uid:
+                if users[0] == user_id:
                     u = users[1]
                 else:
                     u = users[0]
@@ -92,7 +101,7 @@ class Messages():
 
     def get_user(self, uid):
         if uid not in self.userMap:
-            for u in mm.get_users_by_ids_list(list(self._users)):
+            for u in requests.post(mm_server+'users/ids', json=list(self._users), headers=headers).json():
                 self.userMap[u['id']] = u['username']
                 self._users.remove(u['id']) # no need to ever add them again
         return self.userMap[uid]
@@ -100,7 +109,8 @@ class Messages():
     def __str__(self):
         t = ""
         for m in self.messages:
-            t += f"{datetime.fromtimestamp(m['timestamp']/1000)} {self.get_channel(m['channel'])}  {self.get_user(m['user'])}      {m['message'].split('\n')[0]}\n"
+            x = '\n'
+            t += f"{datetime.fromtimestamp(m['timestamp']/1000)} {self.get_channel(m['channel'])}  {self.get_user(m['user'])}      {m['message'].split(x)[0]}\n"
 
         return t
 
@@ -109,27 +119,48 @@ class Messages():
 #            print(datetime.fromtimestamp(m['timestamp']), self.get_user(m['user']), m['message'])
 
 
-messages = Messages()
 
-for channel in channels:
+def get_messages(channel, messages):
     if channel['last_viewed_at'] > begin:
-        posts = mm.get_posts_for_channel(channel['channel_id'])
-        first_msg = True
-        for post in posts:
-            if post['create_at'] < begin and first_msg:
-                break
-            first_msg = False
-            if post['create_at'] > end:
-                continue
-            messages.append({'timestamp': post['create_at'],
-                             'user': post['user_id'],
-                             'message':post['message'],
-                             'channel':channel['channel_id']})
-            # Break afterwards to get one message before beginning as context
-            if post['create_at'] < begin:
-                break
+        has_next = True
+        page = 0
+        while has_next:
+            _posts = requests.get(mm_server+'/channels/'+channel['channel_id']+'/posts', headers=headers, params={'since': int(begin), 'page': page, 'per_page': 1000 })
+            posts = _posts.json()
+            if 'posts' not in posts:
+                try:
+                    # Ignore archived channels
+                    if posts.get('id') == 'api.user.view_archived_channels.get_posts_for_channel.app_error':
+                        return
+                except:
+                    print(_posts.text)
+                    exit()
+            found_post = False
+            p = posts['posts'].values()
 
+            # If there are no more posts, exit
+            for post in p:
+                created = int(post['create_at'])
+                if created/1000 > end:
+                    continue
+                if created/1000 < begin:
+                    continue
+                found_post = True
+                messages.append({'timestamp': created,
+                                 'user': post['user_id'],
+                                 'message':post['message'],
+                                 'channel':channel['channel_id']})
+            has_next = posts['has_next']
+            page += 1
 
+messages = Messages()
+print("Going through channels")
+print()
+for channel in channels.json():
+    info("Channel: "+requests.get(mm_server+'channels/'+channel['channel_id'], headers=headers).json()['display_name'])
+    get_messages(channel, messages)
+
+print("messages:")
 print(messages)
 #for m in sorted(messages, key=lambda x: x['timestamp']):
         #while True:
