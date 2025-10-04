@@ -3,6 +3,7 @@
 import requests
 import bisect
 from datetime import datetime, timedelta
+import pprint
 
 # from datetime import datetime as dt
 #print(calendar.month(dt.today().year, dt.today().month))
@@ -122,16 +123,27 @@ class Messages():
 
 def get_messages(channel, messages):
     if channel['last_viewed_at'] > begin:
-        has_next = True
+        next_id = "yes"
         page = 0
-        while has_next:
+        while next_id != '':
             _posts = requests.get(mm_server+'/channels/'+channel['channel_id']+'/posts', headers=headers, params={'since': int(begin), 'page': page, 'per_page': 1000 })
             posts = _posts.json()
+            # We can get a 403 error, probably when messages have been deleted, etc.
+            # Ignore these channels.
+            if 'status_code' in posts and posts['status_code'] == 403:
+                break
             if 'posts' not in posts:
                 try:
                     # Ignore archived channels
                     if posts.get('id') == 'api.user.view_archived_channels.get_posts_for_channel.app_error':
                         return
+                    else:
+                        # WTF?
+                        print("The following channel has no posts?!")
+                        pprint.print(channel)
+                        print("posts:")
+                        pprint.pp(posts)
+                        break
                 except:
                     print(_posts.text)
                     exit()
@@ -150,7 +162,8 @@ def get_messages(channel, messages):
                                  'user': post['user_id'],
                                  'message':post['message'],
                                  'channel':channel['channel_id']})
-            has_next = posts['has_next']
+            #pprint.pp(posts)
+            next_id = posts['next_post_id']
             page += 1
 
 messages = Messages()
