@@ -119,10 +119,8 @@ class Messages():
 #        for m in self.messages:
 #            print(datetime.fromtimestamp(m['timestamp']), self.get_user(m['user']), m['message'])
 
-
-
 def get_messages(channel, messages):
-    if channel['last_viewed_at'] > begin:
+    if channel['last_viewed_at'] > begin and channel['last_update_at'] > begin:
         next_id = "yes"
         page = 0
         while next_id != '':
@@ -170,7 +168,11 @@ messages = Messages()
 print("Going through channels")
 print()
 for channel in channels.json():
-    info("Channel: "+requests.get(mm_server+'channels/'+channel['channel_id'], headers=headers).json()['display_name'])
+    r = requests.get(mm_server+'channels/'+channel['channel_id'], headers=headers)
+    if r.status_code != 200:
+        print(f"Fetching Channgel failed: {channel}\n\nReturn: {r.json()}")
+        continue
+    info("Channel: "+r.json()['display_name'])
     get_messages(channel, messages)
 
 print("messages:")
